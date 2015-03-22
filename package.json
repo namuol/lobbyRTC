@@ -2,14 +2,17 @@
   "name": "lobbyRTC",
   "version": "0.0.0",
   "description": "Decentralized lobby system utilizing Peer.js",
-  "main": "dist/index.js",
+  "main": "./dist/index.js",
   "scripts": {
-    "build": "gulp watch",
+    "build": "babel -e -d dist src",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",
   "license": "MIT",
   "devDependencies": {
     "babel": "^4.7.16"
+  },
+  "dependencies": {
+    "peerjs": "^0.3.14"
   }
 }
