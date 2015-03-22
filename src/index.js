@@ -124,10 +124,15 @@ async function LobbyRTC (opts={}) {
 
       connections[connectionLabel] = connection;
 
-      console.log('Sending lobbyState', lobbyState);
-      connection.send(lobbyState);
+      setTimeout(() => {
+        console.log('Sending lobbyState', lobbyState);
+        connection.send(lobbyState);
+        connection.send('Hi!');
+        console.log('Sent stuff!');
+      }, 2000);
 
       connection.on('data', (msg) => {
+        console.log('Lobby role: got message:', msg);
         handler = handlers[msg.type];
 
         if (!handler) {
@@ -155,6 +160,7 @@ async function LobbyRTC (opts={}) {
       });
 
       connection.on('close', () => {
+        console.warn('Lobby role: Connection closed', connection);
         delete connections[connectionLabel];
       });
     });
@@ -170,7 +176,9 @@ async function LobbyRTC (opts={}) {
         API.emit('change', _lobbyState)
       });
 
-      lobbyConnection.on('close', () => {});
+      lobbyConnection.on('close', () => {
+        console.warn('Connection with lobby closed!');
+      });
     } catch (err) {
       console.error('Could not connect to lobby.', err);
     }
@@ -191,7 +199,5 @@ async function LobbyRTC (opts={}) {
 
   return API;
 }
-
-LobbyRTC.Peer = Peer;
 
 export default LobbyRTC;
