@@ -124,6 +124,7 @@ gulp.task("server", function (done) {
   };
 
   app.get("/**/*.js", sendFile);
+  app.get("/**/*.map", sendFile);
   app.get("/img/*.png", sendFile);
   app.get("/img/*.jpg", sendFile);
   app.get("/*.json", sendFile);

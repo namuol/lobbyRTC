@@ -34,7 +34,7 @@ let channel = await lobby.create(channelInfo);
 
 // OR:
 
-let channel = await lobby.join('<Channel-ID>', metaData);
+let channel = await lobby.join('<Channel-ID>');
 
 channel.on('join', (peer) => {
   console.log('peer joined: ', peer);
@@ -44,7 +44,7 @@ channel.on('left', (peer) => {
   console.log('peer left: ', peer);
 });
 
-channel.send('data', {yay: 42});
+channel.send({yay: 42});
 
 channel.on('data', (msg) => {
   console.log('data received:', msg.data, 'from', msg.meta);

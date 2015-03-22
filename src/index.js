@@ -76,10 +76,45 @@ async function LobbyRTC (opts={}) {
     channels: {},
   };
 
+  function createChannel (opts) {
+    let {peerID, data} = opts;
+    
+    if (lobbyState.channels[peerID]) {
+      console.error(`Lobby role: Channel with ID "${peerID}" already exists; aborting!`);
+      return;
+    }
+
+    lobbyState.channels[peerID] = {
+      meta: {
+        peers: 1,
+        id: peerID,
+      },
+      data: data,
+    };
+  }
+
+  function joinChannel (opts) {
+    let {channelID} = opts;
+    let channel = lobbyState.channels[channelID];
+    if (!channel) {
+      console.error('Lobby role: Could not find channel with ID:', channelID);
+      return;
+    }
+    channel.meta.peers += 1;
+  }
+
   try {
     peer = lobbyPeer = await claimLobbyRole(opts);
     
     let connections = {};
+    
+    let onChange = () => {
+      API.emit('change', lobbyState);
+
+      Object.keys(connections).forEach((_connectionLabel) => {
+        connections[_connectionLabel].send(lobbyState);
+      });
+    };
 
     lobbyPeer.on('connection', (connection) => {
       console.log('Lobby role: new peer connected', connection);
@@ -88,28 +123,14 @@ async function LobbyRTC (opts={}) {
 
       let handlers = {
         createChannel: (msg) => {
-          if (lobbyState.channels[peerID]) {
-            console.error(`Lobby role: Channel with ID "${peerID}" already exists; aborting!`);
-            return;
-          }
-
-          lobbyState.channels[peerID] = {
-            meta: {
-              peers: 1,
-              id: peerID,
-            },
+          createChannel({
+            peerID: peerID,
             data: msg.data,
-          };
+          });
         },
 
         joinChannel: (msg) => {
-          let {id} = msg.meta;
-          let channel = lobbyState.channels[id];
-          if (!channel) {
-            console.error('Lobby role: Could not find channel with ID:', id);
-            return;
-          }
-          channel.meta.peers += 1;
+          joinChannel(msg);
         },
 
         leaveChannel: (msg) => {
@@ -123,17 +144,13 @@ async function LobbyRTC (opts={}) {
       };
 
       connections[connectionLabel] = connection;
-
-      setTimeout(() => {
-        console.log('Sending lobbyState', lobbyState);
+      connection.on('open', () => {
         connection.send(lobbyState);
-        connection.send('Hi!');
-        console.log('Sent stuff!');
-      }, 2000);
+      });
 
       connection.on('data', (msg) => {
         console.log('Lobby role: got message:', msg);
-        handler = handlers[msg.type];
+        let handler = handlers[msg.type];
 
         if (!handler) {
           console.error('Lobby role: Unexpected incoming message type: ', msg.type);
@@ -143,15 +160,7 @@ async function LobbyRTC (opts={}) {
 
         handler(msg);
 
-        API.emit('change', lobbyState);
-
-        Object.keys(connections).forEach((_connectionLabel) => {
-          if (connectionLabel === _connectionLabel) {
-            return;
-          }
-
-          connections[connectionLabel].send(lobbyState);
-        });
+        onChange();
       });
 
       connection.on('error', (err) => {
@@ -162,6 +171,8 @@ async function LobbyRTC (opts={}) {
       connection.on('close', () => {
         console.warn('Lobby role: Connection closed', connection);
         delete connections[connectionLabel];
+        delete lobbyState.channels[peerID];
+        onChange();
       });
     });
   } catch (err) {
@@ -185,17 +196,107 @@ async function LobbyRTC (opts={}) {
   }
 
   API.create = function create (data={}) {
-    if (lobbyConnection) {
-      lobbyConnection.send({
-        type: 'createChannel',
-        data: data,
+    return new Promise((resolve, reject) => {
+      if (lobbyConnection) {
+        lobbyConnection.send({
+          type: 'createChannel',
+          data: data,
+        });
+      } else if (lobbyPeer) {
+        createChannel({
+          peerID: peer.id,
+          data: data,
+        });
+      }
+      
+      let channel = new EventEmitter;
+      let connections = [];
+      let send = (data) => {
+        channel.emit('data', data);
+
+        connections.forEach((conn) => {
+          console.log('sending data to connection', conn);
+          conn.send(data);
+        });
+      };
+      peer.on('connection', (connection) => {
+        connections.push(connection);
+        channel.emit('join', connection);
+
+        connection.on('data', send);
+
+        connection.on('close', () => {
+          console.warn('Channel: Peer connection closed', connection);
+          channel.emit('left', connection);
+          connections.splice(connections.indexOf(connection), 1);
+        });
+
+        connection.on('error', (err) => {
+          console.error('Channel: Unexpected error', err);
+          channel.emit('error', err);
+          connection.close();
+        });
       });
-    } else if (lobbyPeer) {
+
+      channel.send = send;
+      channel.id = peer.id;
+
+      resolve(channel);
+    });
+  }
+
+  API.join = function join (channelID) {
+    return new Promise((resolve, reject) => {
+      if (lobbyConnection) {
+        lobbyConnection.send({
+          type: 'joinChannel',
+          channelID: channelID,
+        });
+      } else if (lobbyPeer) {
+        joinChannel({
+          channelID: channelID,
+        });
+      }
+      
+      let channel = new EventEmitter;
+
+      let connection = peer.connect(channelID);
+
+      connection.on('open', () => {
+        console.log('connection opened!!');
+        channel.send = (data) => {
+          connection.send(data);
+        };
+
+        connection.on('data', (data) => {
+          console.log('received data', data);
+          channel.emit('data', data);
+        });
+
+        channel.id = channelID;
+        
+        resolve(channel);
+      });
+      
+      connection.on('close', () => {
+        console.warn('Connection with channel closed; channelID:', channelID);
+      });
+
+      connection.on('error', (err) => {
+        console.error('Failed to connect to channel with id', channelID, err);
+        connection.close();
+      });
+    });
+  }
+
+  function onUnload () {
+    if (peer && peer.destroy) {
+      peer.destroy();
     }
   }
 
-  API.join = function join (opts={}) {
-  }
+  window.addEventListener('unload', onUnload);
+  window.addEventListener('beforeunload', onUnload);
 
   return API;
 }

@@ -20,17 +20,31 @@ window.addEventListener('load', async function () {
   console.log('props', props);
   
   let lobby = await LobbyRTC({APIKey: 'w68p17ra5u1y8pvi'});
-  
-  lobby.on('change', (lobbyState) => {
-    console.log('New Lobby state:', lobbyState);
-  });
 
   page('/', async function () {
-    React.render(<App {...props} loading={true} />, document.getElementById('main'));
-    React.render(
-      <App {...props} loading={false} />
-    , document.getElementById('main'));
+    render();
+  });
+
+  let channel;
+  page('/:channel', async function (ctx) {
+    channel = await lobby.create({name: ctx.params.channel});
+    page.redirect(`/${ctx.params.channel}/${channel.id}`);
+  });
+
+  page('/:channel/:channelID', async function (ctx) {
+    if (!channel) {
+      channel = await lobby.join(ctx.params.channelID);
+    }
+    render();
   });
 
   page.start();
+
+  function render () {
+    React.render(
+      <App lobby={lobby} channel={channel} />
+    , document.getElementById('main'));
+  }
+
+  render();
 });
